@@ -1,0 +1,11 @@
+pandas
+numpy
+scikit-learn
+cudatoolkit==11.3
+torch==1.12.1
+transformers==4.15.0
+pytorch-lightning==1.8.6
+wandb
+rouge
+tqdm
+notebook
