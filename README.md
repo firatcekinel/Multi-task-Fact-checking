@@ -22,10 +22,10 @@ python t5_multitask_efever.py \
 --test_file "FEVER/test_train.tsv" \
 --batch 4 \ 
 --epoch 3 \ 
---hidden_size 64 \
+--hidden_size 32 \
 --lr 2e-5 \
---cl_coeff 0.9 \
---summ_coeff 0.1 \
+--cl_coeff 0.8 \
+--summ_coeff 0.2 \
 --useUncertaintyLoss False \
 --skip_train False
 ```
