@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import torch
 torch.cuda.empty_cache()
-from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 import pytorch_lightning as pl
@@ -10,7 +9,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, TQDMProg
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from sklearn.model_selection import train_test_split
 from rouge import Rouge
-from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, confusion_matrix, classification_report, multilabel_confusion_matrix
 
 from transformers import (
@@ -20,33 +18,20 @@ from transformers import (
     get_linear_schedule_with_warmup
 )
 from tqdm import tqdm
+import argparse
 
 pl.seed_everything(42)
 
-MODEL_NAME = 'google/flan-t5-large'
-N_EPOCHS = 4
-BATCH_SIZE = 8
-DO_TRAIN = True
-NUM_WORKERS = 8
-SUM_LOSS_COEFF = 0.1
-CL_LOSS_COEFF = 0.9
-MIXTURE_COEFF = 1
-UNPROVEN_COEFF = 1
-CL_HIDDEN_SIZE = 64
+# default params
+NUM_WORKERS = 4
 CL_DROPOUT_PROB = 0.1
-
 TEXT_TOKEN_LEN=384#1024
 SUMMARY_TOKEN_LEN=192#256
 LABEL_TOKEN_LEN=4
-LR=2e-5
-
-UNCERTAINITY_LOSS=False
-IS_FEVER = False
+SKIP_SUMMARY = False # skip summary generation for FEVER dataset
 
 label_dict = {"SUPPORTS": 2, "REFUTES": 1, "NOT ENOUGH INFO": 0}
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-EXP_NAME = "uncertainity_loss=" + str(UNCERTAINITY_LOSS) + "|model=" + MODEL_NAME + "|batch=" + str(BATCH_SIZE) + "|epoch=" + str(N_EPOCHS) + "|sum_coeff=" + str(SUM_LOSS_COEFF) + "|cl_coeff=" + str(CL_LOSS_COEFF) + "|mixture_coeff=" + str(MIXTURE_COEFF) + "|unproven_coeff=" + str(UNPROVEN_COEFF) + "|text_token_len=" + str(TEXT_TOKEN_LEN) + "|lr=" + str(LR) + "|cl_hidden_size=" + str(CL_HIDDEN_SIZE) + "|cl_dropout_prob=" + str(CL_DROPOUT_PROB)
 
 model_path="checkpoints-flant5/best-checkpoint-efever.ckpt"
 
@@ -128,7 +113,7 @@ class NewsMTDataModule(pl.LightningDataModule):
         val_df: pd.DataFrame,
         test_df: pd.DataFrame,
         tokenizer: T5Tokenizer,
-        batch_size: int = BATCH_SIZE,
+        batch_size: int = 1,
         text_max_token_len: int = TEXT_TOKEN_LEN,
         summary_max_token_len: int = SUMMARY_TOKEN_LEN,
         label_max_token_len: int = LABEL_TOKEN_LEN
@@ -349,26 +334,57 @@ def summarizeText(text, model):
     ]
     return "".join(preds)
 
-train_df = pd.read_csv("FEVER/efever_train.tsv", sep="\t", encoding='utf-8') #
-val_df = pd.read_csv("FEVER/efever_dev.tsv", sep="\t", encoding='utf-8')
-#train_df, val_df = train_test_split(train_df, test_size=0.1, random_state=42)
-test_df = pd.read_csv("FEVER/efever_test.tsv", sep="\t", encoding='utf-8')
+def read_files(train_path, dev_path, test_path):
+    train_df = pd.read_csv(train_path, sep="\t", encoding='utf-8') #
+    val_df = pd.read_csv(dev_path, sep="\t", encoding='utf-8')
+    test_df = pd.read_csv(test_path, sep="\t", encoding='utf-8')
 
-train_df = train_df[['claim', 'summary', 'retrieved_evidence', 'label']]
-train_df = train_df.dropna()
-train_df.columns = ['claim', 'summary', 'text', 'label']
-train_df['text'] = train_df['text'].apply(lambda x: x.replace("+", ""))
+    train_df = train_df[['claim', 'summary', 'retrieved_evidence', 'label']]
+    train_df = train_df.dropna()
+    train_df.columns = ['claim', 'summary', 'text', 'label']
+    train_df['text'] = train_df['text'].apply(lambda x: x.replace("+", ""))
 
-val_df = val_df[['claim', 'summary', 'retrieved_evidence', 'label']]
-val_df = val_df.dropna()
-val_df.columns = ['claim', 'summary', 'text', 'label']
-val_df['text'] = val_df['text'].apply(lambda x: x.replace("+", ""))
+    val_df = val_df[['claim', 'summary', 'retrieved_evidence', 'label']]
+    val_df = val_df.dropna()
+    val_df.columns = ['claim', 'summary', 'text', 'label']
+    val_df['text'] = val_df['text'].apply(lambda x: x.replace("+", ""))
 
-test_df = test_df[['claim', 'summary', 'retrieved_evidence', 'label']]
-test_df = test_df.dropna()
-test_df.columns = ['claim', 'summary', 'text', 'label']
-test_df['text'] = test_df['text'].apply(lambda x: x.replace("+", ""))
+    test_df = test_df[['claim', 'summary', 'retrieved_evidence', 'label']]
+    test_df = test_df.dropna()
+    test_df.columns = ['claim', 'summary', 'text', 'label']
+    test_df['text'] = test_df['text'].apply(lambda x: x.replace("+", ""))
 
+    return train_df, val_df, test_df
+
+parser = argparse.ArgumentParser() 
+parser.add_argument('--model_name', default='google/flan-t5-large', type=str, help='model name')
+parser.add_argument('--train_file', default='FEVER/efever_train.tsv', type=str, help='train file path')
+parser.add_argument('--dev_file', default='FEVER/efever_dev.tsv', type=str, help='validation file path')
+parser.add_argument('--test_file', default='FEVER/efever_test.tsv', type=str, help='test file path')
+parser.add_argument('--batch', default=4, type=int, help='batch size')
+parser.add_argument('--epoch', default=3, type=int, help='number of epochs')
+parser.add_argument('--hidden_size', default=64, type=int, help='hiddem dim size')
+parser.add_argument('--lr', default=2e-5, type=float, help='learning rate')
+parser.add_argument('--cl_coeff', default=0.9, type=float, help='classification weight')
+parser.add_argument('--summ_coeff', default=0.1, type=float, help='summarization weight')
+parser.add_argument('--useUncertaintyLoss', default=False, type=bool, help='loss strategy selection')
+parser.add_argument('--skip_train', default=False, type=bool, help='skip training')
+args = parser.parse_args()
+
+MODEL_NAME = args.model_name
+BATCH_SIZE = args.batch
+UNCERTAINITY_LOSS = args.useUncertaintyLoss
+SKIP_TRAIN = args.skip_train
+CL_HIDDEN_SIZE = args.hidden_size
+N_EPOCHS = args.epoch
+LR = args.lr
+SUM_LOSS_COEFF = args.summ_coeff
+CL_LOSS_COEFF = args.cl_coeff
+
+EXP_NAME = "uncertainity_loss=" + str(UNCERTAINITY_LOSS) + "|model=" + MODEL_NAME + "|batch=" + str(BATCH_SIZE) + "|epoch=" + str(N_EPOCHS) + "|sum_coeff=" + str(SUM_LOSS_COEFF) + "|cl_coeff=" + str(CL_LOSS_COEFF) + "|text_token_len=" + str(TEXT_TOKEN_LEN) + "|lr=" + str(LR) + "|cl_hidden_size=" + str(CL_HIDDEN_SIZE) + "|cl_dropout_prob=" + str(CL_DROPOUT_PROB)
+
+# preprocess train-dev-test files
+train_df, val_df, test_df = read_files(args.train_file, args.dev_file, args.test_file)
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 #class_weights = (1 - (train_df["label"].value_counts().sort_index() / len(train_df))).values
@@ -383,9 +399,9 @@ print("class_weights: ", class_weights)
 
 tokenizer = T5Tokenizer.from_pretrained(MODEL_NAME)
 
-data_module = NewsMTDataModule(train_df, val_df, test_df, tokenizer)
+data_module = NewsMTDataModule(train_df, val_df, test_df, tokenizer, BATCH_SIZE)
 
-if DO_TRAIN:
+if not SKIP_TRAIN:
     steps_per_epoch=len(train_df) // BATCH_SIZE
     total_training_steps = steps_per_epoch * N_EPOCHS
     warmup_steps = total_training_steps // 5
@@ -419,8 +435,6 @@ if DO_TRAIN:
     
     model_path = trainer.checkpoint_callback.best_model_path
     model = NewsMTModel.load_from_checkpoint(trainer.checkpoint_callback.best_model_path)
-
-
 else:
     model = NewsMTModel.load_from_checkpoint(model_path)
 
@@ -431,7 +445,7 @@ model.eval()
 
 model_out = []
 reference = []
-if not IS_FEVER:
+if not SKIP_SUMMARY:
     for i in tqdm(range(test_df.shape[0])):
         row = test_df.iloc[i]
         text = str(row['claim']) + str(row['text'])
@@ -446,9 +460,8 @@ if not IS_FEVER:
 print("CLASSIFICATION RESULTS")
 model_out = []
 reference = []
-if DO_TRAIN:
+if not SKIP_TRAIN:
     trainer.test(model, data_module)
-
 else:
     data_module.setup()
     test_dataloader = data_module.test_dataloader()

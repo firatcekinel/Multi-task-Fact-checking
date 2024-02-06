@@ -2,18 +2,15 @@ import pandas as pd
 import numpy as np
 import torch
 torch.cuda.empty_cache()
-from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, TQDMProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from sklearn.model_selection import train_test_split
-import datetime
 import wandb
-import pickle
+import argparse
 from rouge import Rouge
-from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, confusion_matrix, classification_report, multilabel_confusion_matrix
 
 from transformers import (
@@ -26,28 +23,15 @@ from tqdm import tqdm
 
 pl.seed_everything(42)
 
-MODEL_NAME = 'google/flan-t5-large'
-N_EPOCHS = 4
-BATCH_SIZE = 4
-DO_TRAIN = True
+# default params
 NUM_WORKERS = 4
-SUM_LOSS_COEFF = 0.5
-CL_LOSS_COEFF = 0.5
-MIXTURE_COEFF = 3
-UNPROVEN_COEFF = 9
-CL_HIDDEN_SIZE = 128
 CL_DROPOUT_PROB = 0.1
-LR = 1e-4
-
 TEXT_TOKEN_LEN=512+256
 SUMMARY_TOKEN_LEN=208
 LABEL_TOKEN_LEN=4
 
-
 label_dict = {"unproven": 3, "false": 0, "mixture": 1, "true": 2}
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-EXP_NAME = "model=" + MODEL_NAME + "|batch=" + str(BATCH_SIZE) + "|epoch=" + str(N_EPOCHS) + "|sum_coeff=" + str(SUM_LOSS_COEFF) + "|cl_coeff=" + str(CL_LOSS_COEFF) + "|mixture_coeff=" + str(MIXTURE_COEFF) + "|unproven_coeff=" + str(UNPROVEN_COEFF) + "|text_token_len=" + str(TEXT_TOKEN_LEN) + "|lr=" + str(LR) + "|cl_hidden_size=" + str(CL_HIDDEN_SIZE) + "|cl_dropout_prob=" + str(CL_DROPOUT_PROB)
 
 model_path="checkpoints-pubhealth/best-checkpoint-v3.ckpt"
 
@@ -129,7 +113,7 @@ class NewsMTDataModule(pl.LightningDataModule):
         val_df: pd.DataFrame,
         test_df: pd.DataFrame,
         tokenizer: T5Tokenizer,
-        batch_size: int = BATCH_SIZE,
+        batch_size: int = 1,
         text_max_token_len: int = TEXT_TOKEN_LEN,
         summary_max_token_len: int = SUMMARY_TOKEN_LEN,
         label_max_token_len: int = LABEL_TOKEN_LEN
@@ -345,30 +329,62 @@ def summarizeText(text, model):
     ]
     return "".join(preds)
 
-train_df = pd.read_csv("PUBHEALTH/train.tsv", sep="\t", encoding='utf-8') #
-val_df = pd.read_csv("PUBHEALTH/dev.tsv", sep="\t", encoding='utf-8')
-test_df = pd.read_csv("PUBHEALTH/test.tsv", sep="\t", encoding='utf-8')
+def read_files(train_path, dev_path, test_path):
+    train_df = pd.read_csv(train_path, sep="\t", encoding='utf-8') #
+    val_df = pd.read_csv(dev_path, sep="\t", encoding='utf-8')
+    test_df = pd.read_csv(test_path, sep="\t", encoding='utf-8')
 
-train_df = train_df[['claim', 'explanation', 'main_text', 'label']]
-train_df = train_df.dropna()
-train_df.columns = ['claim', 'summary', 'text', 'label']
-train_df = train_df[train_df.label != "snopes"]
+    train_df = train_df[['claim', 'explanation', 'main_text', 'label']]
+    train_df = train_df.dropna()
+    train_df.columns = ['claim', 'summary', 'text', 'label']
+    train_df = train_df[train_df.label != "snopes"]
 
-val_df = val_df[['claim', 'explanation', 'main_text', 'label']]
-val_df = val_df.dropna()
-val_df.columns = ['claim', 'summary', 'text', 'label']
-val_df = val_df[val_df.label != "National, Candidate Biography, Donald Trump,"]
+    val_df = val_df[['claim', 'explanation', 'main_text', 'label']]
+    val_df = val_df.dropna()
+    val_df.columns = ['claim', 'summary', 'text', 'label']
+    val_df = val_df[val_df.label != "National, Candidate Biography, Donald Trump,"]
 
-test_df = test_df[['claim', 'explanation', 'main_text', 'label']]
-test_df = test_df.dropna()
-test_df.columns = ['claim', 'summary', 'text', 'label']
+    test_df = test_df[['claim', 'explanation', 'main_text', 'label']]
+    test_df = test_df.dropna()
+    test_df.columns = ['claim', 'summary', 'text', 'label']
 
+parser = argparse.ArgumentParser() 
+parser.add_argument('--model_name', default='google/flan-t5-large', type=str, help='model name')
+parser.add_argument('--train_file', default='PUBHEALTH/train.tsv', type=str, help='train file path')
+parser.add_argument('--dev_file', default='PUBHEALTH/dev.tsv', type=str, help='validation file path')
+parser.add_argument('--test_file', default='PUBHEALTH/test.tsv', type=str, help='test file path')
+parser.add_argument('--batch', default=4, type=int, help='batch size')
+parser.add_argument('--epoch', default=3, type=int, help='number of epochs')
+parser.add_argument('--hidden_size', default=64, type=int, help='hiddem dim size')
+parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
+parser.add_argument('--cl_coeff', default=0.5, type=float, help='classification weight')
+parser.add_argument('--summ_coeff', default=0.5, type=float, help='summarization weight')
+parser.add_argument('--mixture_coeff', default=2.5, type=float, help='mixture weight')
+parser.add_argument('--unproven_coeff', default=7.0, type=float, help='unproven weight')
+parser.add_argument('--skip_train', default=False, type=bool, help='skip training')
+args = parser.parse_args()
+
+MODEL_NAME = args.model_name
+BATCH_SIZE = args.batch
+SKIP_TRAIN = args.skip_train
+CL_HIDDEN_SIZE = args.hidden_size
+N_EPOCHS = args.epoch
+LR = args.lr
+SUM_LOSS_COEFF = args.summ_coeff
+CL_LOSS_COEFF = args.cl_coeff
+MIXTURE_COEFF = args.mixture_coeff
+UNPROVEN_COEFF = args.unproven_coeff
+
+EXP_NAME = "model=" + MODEL_NAME + "|batch=" + str(BATCH_SIZE) + "|epoch=" + str(N_EPOCHS) + "|sum_coeff=" + str(SUM_LOSS_COEFF) + "|cl_coeff=" + str(CL_LOSS_COEFF) + "|mixture_coeff=" + str(MIXTURE_COEFF) + "|unproven_coeff=" + str(UNPROVEN_COEFF) + "|text_token_len=" + str(TEXT_TOKEN_LEN) + "|lr=" + str(LR) + "|cl_hidden_size=" + str(CL_HIDDEN_SIZE) + "|cl_dropout_prob=" + str(CL_DROPOUT_PROB)
+
+# preprocess train-dev-test files
+train_df, val_df, test_df = read_files(args.train_file, args.dev_file, args.test_file)
 
 tokenizer = T5Tokenizer.from_pretrained(MODEL_NAME)
 
-data_module = NewsMTDataModule(train_df, val_df, test_df, tokenizer)
+data_module = NewsMTDataModule(train_df, val_df, test_df, tokenizer, BATCH_SIZE)
 
-if DO_TRAIN:
+if not SKIP_TRAIN:
     steps_per_epoch=len(train_df) // BATCH_SIZE
     total_training_steps = steps_per_epoch * N_EPOCHS
     warmup_steps = total_training_steps // 5
@@ -430,7 +446,7 @@ if SUM_LOSS_COEFF > 0:
 print("CLASSIFICATION RESULTS")
 model_out = []
 reference = []
-if DO_TRAIN:
+if not SKIP_TRAIN:
     trainer.test(model, data_module)
 else:
     data_module.setup()
