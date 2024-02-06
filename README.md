@@ -27,7 +27,7 @@ python t5_multitask_efever.py \
 --cl_coeff 0.9 \
 --summ_coeff 0.1 \
 --useUncertaintyLoss False \
---skip_train  False
+--skip_train False
 ```
 
 or 
@@ -46,7 +46,7 @@ python t5_multitask_pubhealth.py \
 --summ_coeff 0.5 \
 --mixture_coeff 2.5 \
 --unproven_coeff 7.0 \
---skip_train  False
+--skip_train False
 ```
 
 ## Citation
