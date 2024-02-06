@@ -355,7 +355,7 @@ parser.add_argument('--dev_file', default='PUBHEALTH/dev.tsv', type=str, help='v
 parser.add_argument('--test_file', default='PUBHEALTH/test.tsv', type=str, help='test file path')
 parser.add_argument('--batch', default=4, type=int, help='batch size')
 parser.add_argument('--epoch', default=3, type=int, help='number of epochs')
-parser.add_argument('--hidden_size', default=64, type=int, help='hiddem dim size')
+parser.add_argument('--hidden_size', default=128, type=int, help='hiddem dim size')
 parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
 parser.add_argument('--cl_coeff', default=0.5, type=float, help='classification weight')
 parser.add_argument('--summ_coeff', default=0.5, type=float, help='summarization weight')

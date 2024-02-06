@@ -35,13 +35,13 @@ or
 ```
 python t5_multitask_pubhealth.py \
 --model_name "google/flan-t5-large" \
---train_file "FEVER/efever_train.tsv" \
---dev_file "FEVER/dev_train.tsv" \
---test_file "FEVER/test_train.tsv" \
+--train_file "PUBHEALTH/train.tsv" \
+--dev_file "PUBHEALTH/dev.tsv" \
+--test_file "PUBHEALTH/test.tsv" \
 --batch 4 \ 
 --epoch 3 \ 
---hidden_size 64 \
---lr 2e-5 \
+--hidden_size 128 \
+--lr 1e-4 \
 --cl_coeff 0.5 \
 --summ_coeff 0.5 \
 --mixture_coeff 2.5 \
