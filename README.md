@@ -51,3 +51,11 @@ python t5_multitask_pubhealth.py \
 
 ## Citation
 Please cite the paper as follows if you find the study useful.
+```
+@article{cekinel2024explaining,
+  title={Explaining Veracity Predictions with Evidence Summarization: A Multi-Task Model Approach},
+  author={Cekinel, Recep Firat and Karagoz, Pinar},
+  journal={arXiv preprint arXiv:2402.06443},
+  year={2024}
+}
+```
