@@ -8,7 +8,9 @@ Note that in this study we utilized [PUBHEALTH](https://github.com/neemakot/Heal
 
 The model architecture is given in the Figure. Both summarization and classification tasks share a T5 Encoder during training. At first, the T5 Encoder encodes the claim and evidence sentences in a latent space. Afterwards, the T5 Decoder produces a summary using the T5 Encoder's representation. Simultaneously, for the veracity prediction, the encoder's output is processed by two feed-forward layers respectively. We employ the ReLU activation function and apply dropout between two linear layers and the sigmoid activation function after the second linear layer. Besides, the cross entropy loss is used for measuring summary and classification losses.
 
-![t5-mt](https://github.com/firatcekinel/Multi-task-Fact-checking/assets/88368345/5a52174b-813d-4a2b-ba64-a7ff6de216e0)
+![t5_mt](https://github.com/user-attachments/files/17659098/t5_mt_v4.pdf)
+
+
 
 ## Execution
 
